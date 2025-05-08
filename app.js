@@ -14,6 +14,7 @@ firebase.initializeApp(firebaseConfig);
 // Get a reference to the Firebase services
 const storage = firebase.storage();
 const auth = firebase.auth();
+const db = firebase.firestore();
 const storageRef = storage.ref();
 const panelImagesRef = storageRef.child('panel images');
 
@@ -26,6 +27,17 @@ const uploadProgressBar = document.getElementById('upload-progress-bar');
 const imageContainer = document.getElementById('image-container');
 const loadingMessage = document.getElementById('loading-message');
 const authStatusElement = document.getElementById('auth-status');
+const panelFilterSelect = document.getElementById('panel-filter');
+const startScannerBtn = document.getElementById('start-scanner');
+const stopScannerBtn = document.getElementById('stop-scanner');
+const scannerContainer = document.getElementById('scanner-container');
+const panelIdDisplay = document.getElementById('panel-id-display');
+const uploadPanelId = document.getElementById('upload-panel-id');
+
+// Global variables
+let currentPanelId = null;
+let html5QrCode = null;
+let scannedPanelIds = new Set();
 
 // Sign in anonymously
 function signInAnonymously() {
@@ -38,6 +50,8 @@ function signInAnonymously() {
             }
             // Load images after authentication
             loadImages();
+            // Load panel IDs for filter
+            loadPanelIds();
         })
         .catch((error) => {
             console.error('Error signing in anonymously:', error);
@@ -56,6 +70,10 @@ auth.onAuthStateChanged((user) => {
             authStatusElement.innerHTML = 'Authenticated anonymously';
             authStatusElement.classList.add('text-success');
         }
+        // Load images when authenticated
+        loadImages();
+        // Load panel IDs for filter
+        loadPanelIds();
     } else {
         console.log('User is signed out');
         if (authStatusElement) {
@@ -65,6 +83,117 @@ auth.onAuthStateChanged((user) => {
         // Try to sign in if not authenticated
         signInAnonymously();
     }
+});
+
+// QR Code Scanner Setup
+startScannerBtn.addEventListener('click', startScanner);
+stopScannerBtn.addEventListener('click', stopScanner);
+
+function startScanner() {
+    scannerContainer.style.display = 'block';
+    startScannerBtn.style.display = 'none';
+    stopScannerBtn.style.display = 'inline-block';
+    
+    html5QrCode = new Html5Qrcode("qr-reader");
+    const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+    
+    html5QrCode.start(
+        { facingMode: "environment" }, 
+        config,
+        onScanSuccess
+    ).catch(error => {
+        console.error('Error starting scanner:', error);
+        alert('Failed to start scanner: ' + error);
+        stopScanner();
+    });
+}
+
+function stopScanner() {
+    if (html5QrCode && html5QrCode.isScanning) {
+        html5QrCode.stop().then(() => {
+            console.log('Scanner stopped');
+            scannerContainer.style.display = 'none';
+            startScannerBtn.style.display = 'inline-block';
+            stopScannerBtn.style.display = 'none';
+        }).catch(error => {
+            console.error('Error stopping scanner:', error);
+        });
+    } else {
+        scannerContainer.style.display = 'none';
+        startScannerBtn.style.display = 'inline-block';
+        stopScannerBtn.style.display = 'none';
+    }
+}
+
+function onScanSuccess(decodedText) {
+    try {
+        // Try to parse as JSON
+        const data = JSON.parse(decodedText);
+        
+        if (data && data.panelId) {
+            currentPanelId = data.panelId;
+            panelIdDisplay.textContent = `Current Panel ID: ${currentPanelId}`;
+            uploadPanelId.textContent = `Images will be linked to Panel ID: ${currentPanelId}`;
+            
+            // Add to scanned panel IDs if not already there
+            if (!scannedPanelIds.has(currentPanelId)) {
+                scannedPanelIds.add(currentPanelId);
+                updatePanelFilter();
+            }
+            
+            // Optionally stop scanning after success
+            stopScanner();
+        } else {
+            alert('Invalid QR code format. Expected JSON with panelId field.');
+        }
+    } catch (error) {
+        console.error('Error parsing QR code:', error);
+        alert('Failed to parse QR code. Expected JSON format.');
+    }
+}
+
+// Update panel filter dropdown
+function updatePanelFilter() {
+    // Clear existing options except "All Panels"
+    while (panelFilterSelect.options.length > 1) {
+        panelFilterSelect.remove(1);
+    }
+    
+    // Add panel IDs to filter
+    scannedPanelIds.forEach(panelId => {
+        const option = document.createElement('option');
+        option.value = panelId;
+        option.textContent = `Panel ${panelId}`;
+        panelFilterSelect.appendChild(option);
+    });
+}
+
+// Load all known panel IDs from Firestore
+function loadPanelIds() {
+    if (!auth.currentUser) {
+        console.log('User not authenticated, waiting for auth...');
+        return;
+    }
+    
+    db.collection('panel_images')
+        .get()
+        .then((querySnapshot) => {
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                if (data.panelId && !scannedPanelIds.has(data.panelId)) {
+                    scannedPanelIds.add(data.panelId);
+                }
+            });
+            updatePanelFilter();
+        })
+        .catch((error) => {
+            console.error('Error loading panel IDs:', error);
+        });
+}
+
+// Filter images by panel ID
+panelFilterSelect.addEventListener('change', () => {
+    loadImages();
 });
 
 // Event listeners for drag and drop
@@ -110,6 +239,14 @@ function handleFiles(files) {
         return;
     }
     
+    // Check if panel ID is set
+    if (!currentPanelId) {
+        if (confirm('No panel ID is currently set. Images will not be linked to any specific panel. Do you want to scan a QR code first?')) {
+            startScanner();
+            return;
+        }
+    }
+    
     Array.from(files).forEach(file => {
         uploadFile(file);
     });
@@ -147,17 +284,41 @@ function uploadFile(file) {
             uploadTask.snapshot.ref.getDownloadURL().then((downloadURL) => {
                 console.log('File available at', downloadURL);
                 uploadProgress.style.display = 'none';
-                loadImages(); // Refresh the image gallery
+                
+                // Store image metadata in Firestore
+                storeImageMetadata(fileName, downloadURL, currentPanelId);
+                
+                // Refresh the image gallery
+                loadImages();
             });
         }
     );
 }
 
-// Load images from Firebase Storage
+// Store image metadata in Firestore
+function storeImageMetadata(fileName, imageUrl, panelId) {
+    const imageData = {
+        fileName: fileName,
+        imageUrl: imageUrl,
+        panelId: panelId || null,  // Use null if no panel ID is set
+        uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        uploadedBy: auth.currentUser.uid
+    };
+    
+    db.collection('panel_images').add(imageData)
+        .then((docRef) => {
+            console.log('Image metadata stored with ID:', docRef.id);
+        })
+        .catch((error) => {
+            console.error('Error storing image metadata:', error);
+        });
+}
+
+// Load images from Firebase Storage and Firestore
 function loadImages() {
     // Check if user is authenticated
     if (!auth.currentUser) {
-        console.log('User not authenticated, waiting for auth...');
+        console.log('User not authenticated for loading images, waiting for auth...');
         return;
     }
     
@@ -168,7 +329,44 @@ function loadImages() {
     // Show loading message
     loadingMessage.style.display = 'block';
     
-    // List all the items in the 'panel images' folder
+    // Get the selected panel ID filter
+    const selectedPanelId = panelFilterSelect.value;
+    
+    // Query Firestore for image metadata
+    let query = db.collection('panel_images');
+    if (selectedPanelId !== 'all') {
+        query = query.where('panelId', '==', selectedPanelId);
+    }
+    
+    query.orderBy('uploadedAt', 'desc')
+        .get()
+        .then((querySnapshot) => {
+            loadingMessage.style.display = 'none';
+            
+            if (querySnapshot.empty) {
+                imageContainer.innerHTML = '<div class="col-12 text-center"><p>No images found</p></div>';
+                return;
+            }
+            
+            querySnapshot.forEach((doc) => {
+                const data = doc.data();
+                const imageCard = createImageCard(data.fileName, data.imageUrl, data.panelId, doc.id);
+                imageContainer.appendChild(imageCard);
+            });
+        })
+        .catch((error) => {
+            console.error('Error loading images:', error);
+            loadingMessage.style.display = 'none';
+            imageContainer.innerHTML = `<div class="col-12 text-center"><p>Error loading images: ${error.message}</p></div>`;
+            
+            // Fallback to direct Storage listing if Firestore fails
+            console.log('Falling back to direct Storage listing');
+            loadImagesFromStorage();
+        });
+}
+
+// Fallback method to load images directly from Storage
+function loadImagesFromStorage() {
     panelImagesRef.listAll()
         .then((res) => {
             if (res.items.length === 0) {
@@ -185,31 +383,36 @@ function loadImages() {
                 // Get the download URL
                 itemRef.getDownloadURL().then((url) => {
                     // Create image card
-                    const imageCard = createImageCard(itemRef.name, url);
+                    const imageCard = createImageCard(itemRef.name, url, null, null);
                     imageContainer.appendChild(imageCard);
                 });
             });
         })
         .catch((error) => {
-            console.error('Error loading images:', error);
+            console.error('Error loading images from storage:', error);
             imageContainer.innerHTML = `<div class="col-12 text-center"><p>Error loading images: ${error.message}</p></div>`;
             loadingMessage.style.display = 'none';
         });
 }
 
 // Create an image card element
-function createImageCard(name, url) {
+function createImageCard(name, url, panelId, docId) {
     const col = document.createElement('div');
     col.className = 'col-md-6 col-lg-4 image-item';
+    
+    const panelBadge = panelId ? 
+        `<span class="badge bg-info mb-2">Panel ID: ${panelId}</span>` : 
+        '<span class="badge bg-secondary mb-2">No Panel ID</span>';
     
     col.innerHTML = `
         <div class="card image-card">
             <img src="${url}" class="card-img-top" alt="${name}">
             <div class="card-body">
                 <h5 class="card-title">${name}</h5>
-                <div class="d-flex justify-content-between">
+                ${panelBadge}
+                <div class="d-flex justify-content-between mt-2">
                     <a href="${url}" class="btn btn-sm btn-primary" target="_blank">View Full Size</a>
-                    <button class="btn btn-sm btn-danger delete-btn" data-name="${name}">Delete</button>
+                    <button class="btn btn-sm btn-danger delete-btn" data-name="${name}" data-docid="${docId || ''}">Delete</button>
                 </div>
             </div>
         </div>
@@ -219,15 +422,15 @@ function createImageCard(name, url) {
     const deleteBtn = col.querySelector('.delete-btn');
     deleteBtn.addEventListener('click', () => {
         if (confirm(`Are you sure you want to delete ${name}?`)) {
-            deleteImage(name);
+            deleteImage(name, docId);
         }
     });
     
     return col;
 }
 
-// Delete an image from Firebase Storage
-function deleteImage(name) {
+// Delete an image from Firebase Storage and Firestore
+function deleteImage(name, docId) {
     // Check if user is authenticated
     if (!auth.currentUser) {
         alert('Please wait while we authenticate you...');
@@ -237,20 +440,34 @@ function deleteImage(name) {
     
     const imageRef = panelImagesRef.child(name);
     
+    // Delete from Storage
     imageRef.delete().then(() => {
-        console.log(`${name} deleted successfully`);
+        console.log(`${name} deleted from Storage successfully`);
+        
+        // Delete from Firestore if we have a document ID
+        if (docId) {
+            db.collection('panel_images').doc(docId).delete()
+                .then(() => {
+                    console.log(`Document ${docId} deleted from Firestore successfully`);
+                })
+                .catch((error) => {
+                    console.error('Error deleting document from Firestore:', error);
+                });
+        }
+        
         loadImages(); // Refresh the image list
     }).catch((error) => {
-        console.error('Error deleting image:', error);
+        console.error('Error deleting image from Storage:', error);
         alert('Error deleting image: ' + error.message);
     });
 }
 
-// Load images when the page loads (authentication now handles this)
+// Load images when the page loads
 document.addEventListener('DOMContentLoaded', () => {
     // Authentication will trigger loadImages after signing in
     // Check if already signed in
     if (auth.currentUser) {
         loadImages();
+        loadPanelIds();
     }
 }); 

@@ -71,6 +71,22 @@
         .text-danger {
             color: #dc3545 !important;
         }
+        #qr-reader {
+            width: 100%;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        #scanner-container {
+            display: none;
+            margin-bottom: 20px;
+        }
+        .panel-id-info {
+            margin-top: 10px;
+            font-weight: bold;
+        }
+        .qr-buttons {
+            margin-bottom: 15px;
+        }
     </style>
 </head>
 <body>
@@ -83,6 +99,28 @@
 
         <div class="row">
             <div class="col-md-8 offset-md-2">
+                <!-- QR Scanner Section -->
+                <div class="card mb-4">
+                    <div class="card-header bg-info text-white">
+                        <h3>Panel Identification</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="panel-id-container">
+                            <p>Scan QR code on the solar panel to link images with the correct panel ID</p>
+                            <div class="qr-buttons">
+                                <button id="start-scanner" class="btn btn-primary">Start QR Scanner</button>
+                                <button id="stop-scanner" class="btn btn-secondary" style="display: none;">Stop Scanner</button>
+                            </div>
+                            <div id="scanner-container">
+                                <div id="qr-reader"></div>
+                            </div>
+                            <div class="panel-id-info">
+                                <div id="panel-id-display">No panel ID scanned yet</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Upload Section -->
                 <div class="card mb-4">
                     <div class="card-header bg-primary text-white">
@@ -93,6 +131,7 @@
                             <div class="dz-message">
                                 <h4>Drop files here or click to upload</h4>
                                 <p>Upload thermal images of solar panels for analysis</p>
+                                <small id="upload-panel-id" class="text-muted">Images will be linked to the scanned panel ID</small>
                             </div>
                             <input type="file" id="fileInput" style="display: none;" accept="image/*">
                         </div>
@@ -111,6 +150,11 @@
                 <div class="card">
                     <div class="card-header bg-dark text-white">
                         <h3>Uploaded Images</h3>
+                        <div class="mt-2">
+                            <select id="panel-filter" class="form-select">
+                                <option value="all">All Panels</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="card-body">
                         <div id="image-container" class="row">
@@ -131,12 +175,17 @@
     <!-- Bootstrap Bundle with Popper -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     
+    <!-- QR Code Scanner Library -->
+    <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    
     <!-- Firebase App (the core Firebase SDK) -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <!-- Firebase Storage -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
     <!-- Firebase Auth -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <!-- Firebase Firestore -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     
     <script src="app.js"></script>
 </body>
