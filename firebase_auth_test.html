@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Firebase Auth Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .result {
+            background-color: #f5f5f5;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-top: 20px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+        }
+        button {
+            padding: 10px 15px;
+            background-color: #4285F4;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Firebase Authentication Test</h1>
+
+    <div>
+        <button id="signInAnonymously">Sign In Anonymously</button>
+        <button id="signOut">Sign Out</button>
+        <button id="checkAuth">Check Auth State</button>
+    </div>
+
+    <div class="result" id="result">Results will appear here...</div>
+
+    <!-- Firebase App (the core Firebase SDK) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <!-- Firebase Auth -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    
+    <script>
+        // Firebase configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyBceHKO6VqiLj1dnU8jdRTjnI0QmC1ltuM",
+            authDomain: "solarpanel-b1346.firebaseapp.com",
+            projectId: "solarpanel-b1346",
+            storageBucket: "solarpanel-b1346.firebasestorage.app",
+            messagingSenderId: "730583933743",
+            appId: "1:730583933743:web:9afed9e1d12b2d8dbef60b"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        
+        // Get a reference to the auth service
+        const auth = firebase.auth();
+        
+        // DOM elements
+        const resultDiv = document.getElementById('result');
+        const signInBtn = document.getElementById('signInAnonymously');
+        const signOutBtn = document.getElementById('signOut');
+        const checkAuthBtn = document.getElementById('checkAuth');
+        
+        // Log to result div
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            resultDiv.textContent += `\n[${timestamp}] ${message}`;
+            resultDiv.scrollTop = resultDiv.scrollHeight;
+        }
+        
+        // Clear result div
+        function clearLog() {
+            resultDiv.textContent = '';
+        }
+        
+        // Sign in anonymously
+        signInBtn.addEventListener('click', () => {
+            clearLog();
+            log('Attempting anonymous sign-in...');
+            
+            auth.signInAnonymously()
+                .then(() => {
+                    log('Successfully signed in anonymously');
+                })
+                .catch((error) => {
+                    log(`Error signing in: ${error.code} - ${error.message}`);
+                });
+        });
+        
+        // Sign out
+        signOutBtn.addEventListener('click', () => {
+            clearLog();
+            log('Signing out...');
+            
+            auth.signOut()
+                .then(() => {
+                    log('Successfully signed out');
+                })
+                .catch((error) => {
+                    log(`Error signing out: ${error.code} - ${error.message}`);
+                });
+        });
+        
+        // Check auth state
+        checkAuthBtn.addEventListener('click', () => {
+            clearLog();
+            
+            const user = auth.currentUser;
+            if (user) {
+                log(`Current user: ${user.uid} (Anonymous: ${user.isAnonymous})`);
+            } else {
+                log('No user is currently signed in');
+            }
+        });
+        
+        // Monitor auth state changes
+        auth.onAuthStateChanged((user) => {
+            if (user) {
+                log(`Auth state changed: User ${user.uid} is signed in (Anonymous: ${user.isAnonymous})`);
+            } else {
+                log('Auth state changed: User is signed out');
+            }
+        });
+        
+        // Initial check
+        document.addEventListener('DOMContentLoaded', () => {
+            log('Firebase Auth Test page loaded');
+            
+            // Check if already signed in
+            const user = auth.currentUser;
+            if (user) {
+                log(`Already signed in as: ${user.uid} (Anonymous: ${user.isAnonymous})`);
+            } else {
+                log('Not currently signed in');
+            }
+        });
+    </script>
+</body>
+</html> 
